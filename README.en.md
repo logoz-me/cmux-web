@@ -87,7 +87,7 @@ No npm dependencies: the server only uses the standard library.
 
 ## Installation
 
-    git clone https://github.com/VOUS/cmux-web.git
+    git clone https://github.com/logoz-me/cmux-web.git
     cd cmux-web
     ./install.sh
 
