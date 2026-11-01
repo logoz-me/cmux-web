@@ -1,0 +1,111 @@
+#!/bin/bash
+# Helper for the cmux-web service.
+#
+#   cmux-web start|stop|restart|status|logs|token|url|addrs [host]
+#
+# "host" may be: local (default), lan (0.0.0.0), vpn (adresse VPN),
+# or any explicit address.
+set -uo pipefail
+
+SELF="$0"
+while [ -L "$SELF" ]; do
+  LINK="$(readlink "$SELF")"
+  case "$LINK" in
+    /*) SELF="$LINK" ;;
+    *) SELF="$(dirname "$SELF")/$LINK" ;;
+  esac
+done
+DIR="$(cd "$(dirname "$SELF")" && pwd)"
+PLIST="$HOME/Library/LaunchAgents/com.cmux.web.plist"
+LABEL="com.cmux.web"
+CONFIG="$DIR/config.json"
+
+ACTION="status"
+if [ $# -ge 1 ]; then ACTION="$1"; fi
+ARG=""
+if [ $# -ge 2 ]; then ARG="$2"; fi
+
+cfg_get() {
+  python3 -c "import json,sys;print(json.load(open('$CONFIG')).get('$1',sys.argv[1]))" "$2"
+}
+
+port_of() { cfg_get port 9999; }
+host_of() { cfg_get host 127.0.0.1; }
+
+set_host() {
+  python3 -c "
+import json, pathlib, sys
+path = pathlib.Path('$CONFIG')
+raw = sys.argv[1]
+host = {'lan': '0.0.0.0', 'local': '127.0.0.1'}.get(raw, raw)
+cfg = json.loads(path.read_text()) if path.exists() else {}
+cfg['host'] = host
+path.write_text(json.dumps(cfg, indent=2) + '\n')
+print('host =', host)
+" "$1"
+}
+
+# Every IPv4 address of the machine, with the interface it belongs to.
+list_addrs() {
+  for iface in $(ifconfig -l 2>/dev/null); do
+    ip=$(ifconfig "$iface" 2>/dev/null | awk '$1=="inet"{print $2; exit}')
+    [ -n "$ip" ] || continue
+    kind="reseau"
+    case "$iface" in
+      utun*) kind="VPN" ;;
+      en0)   kind="LAN" ;;
+      bridge0) kind="LAN" ;;
+    esac
+    echo "$iface $ip $kind"
+  done
+}
+
+case "$ACTION" in
+  start|restart)
+    if [ -n "$ARG" ]; then set_host "$ARG"; fi
+    launchctl unload "$PLIST" 2>/dev/null
+    launchctl load "$PLIST"
+    sleep 1
+    "$0" status
+    ;;
+  stop)
+    launchctl unload "$PLIST" 2>/dev/null
+    echo "cmux-web arrêté"
+    ;;
+  status)
+    if launchctl list "$LABEL" >/dev/null 2>&1; then echo "cmux-web: actif"; else echo "cmux-web: arrêté"; fi
+    curl -s -m 3 "http://127.0.0.1:$(port_of)/api/health" \
+      -H "Authorization: Bearer $(cat "$DIR/.web-token")"
+    echo
+    ;;
+  logs)
+    N=40
+    if [ -n "$ARG" ]; then N="$ARG"; fi
+    tail -n "$N" "$DIR/server.log"
+    ;;
+  token)
+    cat "$DIR/.web-token"
+    echo
+    ;;
+  addrs)
+    list_addrs
+    ;;
+  url)
+    TOKEN="$(cat "$DIR/.web-token")"
+    PORT="$(port_of)"
+    HOST="$(host_of)"
+    if [ "$HOST" = "0.0.0.0" ]; then
+      list_addrs | while read -r iface ip kind; do
+        echo "http://$ip:$PORT/?token=$TOKEN   ($kind, $iface)"
+      done
+      echo
+      echo "localhost : http://127.0.0.1:$PORT/?token=$TOKEN"
+    else
+      echo "http://$HOST:$PORT/?token=$TOKEN"
+    fi
+    ;;
+  *)
+    echo "usage: cmux-web {start|stop|restart|status|logs|token|url|addrs} [host]" >&2
+    exit 1
+    ;;
+esac

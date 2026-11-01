@@ -1,0 +1,10 @@
+# Donnees locales, jamais versionnees
+.web-token
+config.json
+server.log
+*.bak
+*.bak.*
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc
