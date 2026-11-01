@@ -135,7 +135,12 @@ def set_mode(text, mode):
         except ValueError:
             data = {}
         data["socketControlMode"] = mode
-        new_block = json.dumps(data, indent=2, ensure_ascii=False)
+        dumped = json.dumps(data, indent=2, ensure_ascii=False)
+        # On re-indente le bloc pour qu'il s'aligne sur le fichier hote.
+        new_block = "\n".join(
+            ("  " + line) if index else line
+            for index, line in enumerate(dumped.split("\n"))
+        )
         return text[:begin] + new_block + text[end:]
 
     # pas de bloc "automation" : on l'ajoute avant la derniere accolade racine.
